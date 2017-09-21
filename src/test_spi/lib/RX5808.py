@@ -1,5 +1,5 @@
 
-from lib.SPI import *
+
 
 
 class Rx5808:
