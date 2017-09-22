@@ -1,8 +1,8 @@
+import time
 
 
 
-
-class Rx5808:
+class RX5808:
 
 
     vtx_frequency = [5865, 5845, 5825, 5805, 5785, 5765, 5745, 5725,  #  Band A
@@ -28,24 +28,24 @@ class Rx5808:
         self._adc = adc
 
     def get_vtx_hex(self, freq):
-        for i in len(self.vtx_frequency):
+        for i in range(len(self.vtx_frequency)):
             if self.vtx_frequency[i] == freq:
                 return self.vtx_hex[i]
         return None
 
-    def change_frequency(self,freq): 
+    def change_frequency(self,freq):
         self._spi.set_high(self._ss)
         time.sleep(2)
         self._spi.set_low(self._ss)
-       
-        
+
+
         self._spi.send_bit_zero()
         self._spi.send_bit_zero()
         self._spi.send_bit_zero()
         self._spi.send_bit_one()
         self._spi.send_bit_zero()
 
-        byte vtxhex = self.get_vtx_hex(freq)
+        vtxhex = self.get_vtx_hex(freq)
 
         for i in range(20):
             self._spi.send_bit_zero()
@@ -62,7 +62,7 @@ class Rx5808:
         self._spi.send_bit_zero()
         self._spi.send_bit_zero()
 
-        self.send_bit_one()
+        self._spi.send_bit_one()
 
         for i in range(16): #write D0-D16
             if vtxhex & 0x1:
@@ -82,5 +82,7 @@ class Rx5808:
 
 
     def get_rssi(self):
-        return 0
-                
+        if ((self._index > 7) or (self._index < 0)):
+                return -1
+
+        return self._spi.read_adc(self._index)
