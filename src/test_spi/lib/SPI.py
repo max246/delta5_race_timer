@@ -1,4 +1,5 @@
-#import RPi.GPIO as GPIO
+#Part of code has been taken from https://github.com/xythobuz/ due to issues by converting Arduino code to Python
+
 try:
     import RPi.GPIO as GPIO
 except:
