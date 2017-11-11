@@ -9,47 +9,135 @@ import time
 class SPI:
 
 
-   def __init__(self, sck, mosi, miso, cs):
+   def __init__(self, sck, mosi, cs, miso):
        self._sck = sck
        self._mosi = mosi
-       self._miso = miso
        self._cs = cs
+       self._miso = miso
 
+       GPIO.setmode(GPIO.BCM)
        GPIO.setup(self._sck,GPIO.OUT)
        GPIO.setup(self._mosi,GPIO.OUT)
-       GPIO.setup(self._miso,GPIO.IN)
        GPIO.setup(self._cs,GPIO.OUT)
+       GPIO.setup(self._miso,GPIO.OUT)
+
+   def spi_readbit(self):
+       GPIO.output(self._sck, GPIO.LOW)
+       time.sleep(0.000001)
+
+       GPIO.output(self._sck, GPIO.HIGH)
+       time.sleep(0.000001)
+
+       if GPIO.input(self._mosi) == GPIO.HIGH:
+           return True
+       else:
+           return False
+
+       GPIO.output(self._sck, GPIO.LOW)
+       time.sleep(0.000001)
+
+   def get_register(self,reg,ss):
+       self.set_low(ss)
+       time.sleep(0.000001)
+       self.set_high(ss)
+
+       for i in range(4):
+           if reg & (1 << i):
+               self.send_bit_one()
+           else:
+               self.send_bit_zero()
+
+       # Read from register
+       self.send_bit_zero()
+
+       GPIO.setup(self._mosi, GPIO.IN)
+
+       data = 0
+       for i in range(20):
+           # Is bit high or low?
+           val = self.spi_readbit()
+           if val:
+               data |= (1 << i)
+
+       # Finished clocking data in
+       self.set_high(ss)
+       time.sleep(0.000001)
+
+       GPIO.setup(self._mosi, GPIO.OUT)
+
+       GPIO.output(ss, GPIO.LOW)
+       GPIO.output(self._sck, GPIO.LOW)
+       GPIO.output(self._mosi, GPIO.LOW)
+
+       return data
+    
+   def set_register(self, reg, val, ss):
+       self.set_high(ss)
+       time.sleep(0.000001)
+       self.set_low(ss)
+
+       for i in range(4):
+           if reg & (1 << i):
+               self.send_bit_one()
+           else:
+               self.send_bit_zero()
+
+       # Write to register
+       self.send_bit_one();
+
+       # D0-D15
+       for i in range(20):
+           # Is bit high or low?
+           if val & 0x1:
+               self.send_bit_one()
+           else:
+               self.send_bit_zero()
+           # Shift bits along to check the next one
+           val >>= 1
+
+       # Finished clocking data in
+       self.set_high(ss)
+       time.sleep(0.000001)
+       self.set_low(ss)
+
+   def set_all_low(self, ss):
+       GPIO.output(self._sck, GPIO.LOW)
+       GPIO.output(self._mosi, GPIO.LOW)
+       GPIO.output(ss, GPIO.LOW)
 
    def send_bit_zero(self):
        GPIO.output(self._sck, GPIO.LOW)
-       time.sleep(0.3)
-       GPIO.output(self._mosi, GPIO.HIGH)
-       time.sleep(0.3)
+       time.sleep(0.000001)
+
+       GPIO.output(self._mosi, GPIO.LOW)
+       time.sleep(0.000001)
        GPIO.output(self._sck, GPIO.HIGH)
-       time.sleep(0.3)
+       time.sleep(0.000001)
        GPIO.output(self._sck, GPIO.LOW)
-       time.sleep(0.3)
+       time.sleep(0.000001)
 
 
    def send_bit_one(self):
        GPIO.output(self._sck, GPIO.LOW)
-       time.sleep(0.3)
-       GPIO.output(self._mosi, GPIO.LOW)
-       time.sleep(0.3)
+       time.sleep(0.000001)
+
+       GPIO.output(self._mosi, GPIO.HIGH)
+       time.sleep(0.000001)
        GPIO.output(self._sck, GPIO.HIGH)
-       time.sleep(0.3)
+       time.sleep(0.000001)
+
        GPIO.output(self._sck, GPIO.LOW)
-       time.sleep(0.3)
+       time.sleep(0.000001)
 
    def set_low(self, ss):
-       time.sleep(0.1)
+       time.sleep(0.000001)
        GPIO.output(ss, GPIO.LOW)
-       time.sleep(0.1)
+       time.sleep(0.000001)
 
    def set_high(self, ss):
-       time.sleep(0.1)
+       time.sleep(0.000001)
        GPIO.output(ss, GPIO.HIGH)
-       time.sleep(0.1)
+       time.sleep(0.000001)
 
 
    def read_adc(self, adcnum): #Thanks to ADAFRUIT for the code

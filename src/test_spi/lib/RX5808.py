@@ -33,52 +33,42 @@ class RX5808:
                 return self.vtx_hex[i]
         return None
 
-    def change_frequency(self,freq):
-        self._spi.set_high(self._ss)
-        time.sleep(2)
-        self._spi.set_low(self._ss)
+    def set_frequency(self,freq):
+        channel_data = None
+        for i in range(len(self.vtx_frequency)):
+            if self.vtx_frequency[i] == freq:
+                channel_data = self.vtx_hex[i]
+                break
 
+        if channel_data == None:
+            s = "Error: unknown frequency {}MHz!".format(freq)
+            print(s)
+            return s
 
-        self._spi.send_bit_zero()
-        self._spi.send_bit_zero()
-        self._spi.send_bit_zero()
-        self._spi.send_bit_one()
-        self._spi.send_bit_zero()
+        print("Selected frequency: {}MHz ({})...".format(freq, channel_data))
 
-        vtxhex = self.get_vtx_hex(freq)
+        #set_register(0x08, 0x00)
+        self._spi.set_register(0x08, 0x03F40, self._ss) # default values
 
-        for i in range(20):
-            self._spi.send_bit_zero()
+        self._spi.set_register(0x01, channel_data, self._ss)
 
-        self._spi.set_high(self._ss)
-        time.sleep(2)
-        self._spi.set_low(self._ss)
+        self._spi.set_all_low(self._ss)
 
-        self._spi.set_high(self._ss)
-        self._spi.set_low(self._ss)
+        return "Success (set freq to {})!".format(hex(channel_data))
 
-        self._spi.send_bit_one()
-        self._spi.send_bit_zero()
-        self._spi.send_bit_zero()
-        self._spi.send_bit_zero()
+    def get_frequency(self):
+        channel_data = self._spi.get_register(0x01, self._ss)
+        print channel_data, self._ss
+        channel_freq = None
+        for i in range(len(self.vtx_hex)):
+            if self.vtx_hex[i] == channel_data:
+                channel_freq = self.vtx_frequency[i]
+                break
 
-        self._spi.send_bit_one()
-
-        for i in range(16): #write D0-D16
-            if vtxhex & 0x1:
-                self._spi.send_bit_one()
-            else:
-                self._spi.send_bit_zero()
-            vtxhex >>=1
-
-        for i in range(4): #Send D16-D19
-            self._spi.send_bit_zero()
-
-        self._spi.set_high(self._ss)
-        time.sleep(2)
-
-        #set all pins to low
-        #self._spi.set_low(self._ss)
+        if channel_freq == None:
+            return "Unknown ({})".format(hex(channel_data))
+        else:
+            return str(channel_freq) + "MHz"
 
 
     def get_rssi(self):

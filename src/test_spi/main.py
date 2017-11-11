@@ -2,10 +2,11 @@
 from lib.RX5808 import *
 from lib.SPI import *
 
-spi = SPI(18,24,23,25)
+spi = SPI(11,10,25,9) #CLK, MOSI, CS, MISO
 
 
-rx1 = RX5808(1,1)
+rx1 = RX5808(25,1) #CS , INDEX
 rx1.set_spi(spi)
-rx1.change_frequency(5865)
-print rx1.get_rssi()
+#print rx1.get_rssi()
+print rx1.set_frequency(5740)
+
