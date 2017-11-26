@@ -13,11 +13,10 @@ import gevent
 import gevent.monkey
 gevent.monkey.patch_all()
 
-sys.path.append('../delta5interface')
-sys.path.append('/home/pi/delta5_race_timer/src/delta5interface') # Needed to run on startup
-from Delta5Interface import get_hardware_interface
+from lib.RX5808 import *
+from lib.SPI import *
+from lib.DeltaConfiguration import *
 
-from Delta5Race import get_race_state
 
 APP = Flask(__name__, static_url_path='/static')
 APP.config['SECRET_KEY'] = 'secret!'
@@ -31,67 +30,22 @@ APP.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 DB = SQLAlchemy(APP)
 
 INTERFACE = get_hardware_interface()
-RACE = get_race_state() # For storing race management variables
+RACE = DeltaConfiguration() # For storing race management variables
 
 PROGRAM_START = datetime.now()
 RACE_START = datetime.now() # Updated on race start commands
+
+
 
 #
 # Database Models
 #
 
-class Pilot(DB.Model):
-    id = DB.Column(DB.Integer, primary_key=True)
-    pilot_id = DB.Column(DB.Integer, unique=True, nullable=False)
-    callsign = DB.Column(DB.String(80), unique=True, nullable=False)
-    name = DB.Column(DB.String(120), nullable=False)
-
-    def __repr__(self):
-        return '<Pilot %r>' % self.pilot_id
-
-class Heat(DB.Model):
-    id = DB.Column(DB.Integer, primary_key=True)
-    heat_id = DB.Column(DB.Integer, nullable=False)
-    node_index = DB.Column(DB.Integer, nullable=False)
-    pilot_id = DB.Column(DB.Integer, nullable=False)
-
-    def __repr__(self):
-        return '<Heat %r>' % self.heat_id
-
-class CurrentLap(DB.Model):
-    id = DB.Column(DB.Integer, primary_key=True)
-    node_index = DB.Column(DB.Integer, nullable=False)
-    pilot_id = DB.Column(DB.Integer, nullable=False)
-    lap_id = DB.Column(DB.Integer, nullable=False)
-    lap_time_stamp = DB.Column(DB.Integer, nullable=False)
-    lap_time = DB.Column(DB.Integer, nullable=False)
-    lap_time_formatted = DB.Column(DB.Integer, nullable=False)
-
-    def __repr__(self):
-        return '<CurrentLap %r>' % self.pilot_id
-
-class SavedRace(DB.Model):
-    id = DB.Column(DB.Integer, primary_key=True)
-    round_id = DB.Column(DB.Integer, nullable=False)
-    heat_id = DB.Column(DB.Integer, nullable=False)
-    node_index = DB.Column(DB.Integer, nullable=False)
-    pilot_id = DB.Column(DB.Integer, nullable=False)
-    lap_id = DB.Column(DB.Integer, nullable=False)
-    lap_time_stamp = DB.Column(DB.Integer, nullable=False)
-    lap_time = DB.Column(DB.Integer, nullable=False)
-    lap_time_formatted = DB.Column(DB.Integer, nullable=False)
-
-    def __repr__(self):
-        return '<SavedRace %r>' % self.round_id
-
-class Frequency(DB.Model):
-    id = DB.Column(DB.Integer, primary_key=True)
-    band = DB.Column(DB.Integer, nullable=False)
-    channel = DB.Column(DB.Integer, nullable=False)
-    frequency = DB.Column(DB.Integer, nullable=False)
-
-    def __repr__(self):
-        return '<Frequency %r>' % self.frequency
+from model.Pilot import *
+from model.CurrentLap import *
+from model.Heat import *
+from model.Frequency import *
+from model.SavedRace import *
 
 #
 # Authentication
