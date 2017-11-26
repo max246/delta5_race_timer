@@ -1,4 +1,8 @@
 import time
+try:
+    import RPi.GPIO as GPIO
+except:
+    import RPiDummy as GPIO
 
 
 
@@ -19,11 +23,11 @@ class RX5808:
     def __init__(self,ss,index):
         self._ss = ss
         self._index = index
-
+        GPIO.setup(ss, GPIO.OUT)
 
     def set_spi(self,spi):
         self._spi = spi
-
+        
     def set_adc(self, adc):
         self._adc = adc
 

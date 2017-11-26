@@ -10,17 +10,17 @@ import time
 class SPI:
 
 
-   def __init__(self, sck, mosi, cs, miso):
+   def __init__(self, sck, mosi, cs, miso, csRX):
        self._sck = sck
        self._mosi = mosi
        self._cs = cs
        self._miso = miso
-
+       self._csRX = csRX
        GPIO.setmode(GPIO.BCM)
        GPIO.setup(self._sck,GPIO.OUT)
        GPIO.setup(self._mosi,GPIO.OUT)
        GPIO.setup(self._cs,GPIO.OUT)
-       GPIO.setup(self._miso,GPIO.OUT)
+       GPIO.setup(self._miso,GPIO.IN)
 
    def spi_readbit(self):
        GPIO.output(self._sck, GPIO.LOW)
@@ -141,7 +141,12 @@ class SPI:
        time.sleep(0.000001)
 
 
+   def set_all_cs_high(self):
+       for cs in self._csRX:
+           GPIO.output(cs, GPIO.HIGH)
+
    def read_adc(self, adcnum): #Thanks to ADAFRUIT for the code
+       self.set_all_cs_high()
        GPIO.output(self._cs, True)
 
        GPIO.output(self._sck, False)  # start clock low
