@@ -7,7 +7,7 @@ spi = SPI(11,10,8,9,[25]) #CLK, MOSI, CS, MISO, ARRAY CS RX
 
 rx1 = RX5808(25,0) #CS , INDEX
 rx1.set_spi(spi)
-print rx1.set_frequency(5725)
+print rx1.set_frequency(5745)
 
 #RSSI is 150  ( around this value ) when nothing
 #RSSI is 350 ( around this value ) when high / close vtx

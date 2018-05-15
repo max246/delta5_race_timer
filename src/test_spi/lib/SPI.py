@@ -21,6 +21,12 @@ class SPI:
        GPIO.setup(self._mosi,GPIO.OUT)
        GPIO.setup(self._cs,GPIO.OUT)
        GPIO.setup(self._miso,GPIO.IN)
+       self.set_output_csrx()
+     
+
+   def set_output_csrx(self):
+       for cs in self._csRX:
+           GPIO.setup(cs,GPIO.OUT)
 
    def spi_readbit(self):
        GPIO.output(self._sck, GPIO.LOW)
