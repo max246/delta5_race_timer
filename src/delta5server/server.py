@@ -6,126 +6,59 @@ from datetime import datetime
 from functools import wraps
 
 from flask import Flask, render_template, request, Response
-from flask_socketio import SocketIO, emit
+from flask_socketio import  emit
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.ext.declarative import declarative_base
+
 
 import gevent
 import gevent.monkey
 gevent.monkey.patch_all()
 
-#<<<<<<< HEAD
-#from lib.RX5808 import *
-#from lib.SPI import *
-#from lib.DeltaConfiguration import *
-#=======
+
+from lib.RX5808 import *
+from lib.SPI import *
+
+
 sys.path.append('../delta5interface')
 sys.path.append('/home/pi/delta5_race_timer/src/delta5interface')  # Needed to run on startup
 from Delta5Interface import get_hardware_interface
-#>>>>>>> origin/master
+from Delta5Race import get_race_state
 
 
 APP = Flask(__name__, static_url_path='/static')
 APP.config['SECRET_KEY'] = 'secret!'
-SOCKET_IO = SocketIO(APP, async_mode='gevent')
 
 HEARTBEAT_THREAD = None
 
-BASEDIR = os.path.abspath(os.path.dirname(__file__))
-APP.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASEDIR, 'database.db')
-APP.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-DB = SQLAlchemy(APP)
+from util.socket_util import *
+from util.socket_util import SOCKET_IO
+
+SOCKET_IO.init_app(APP)
 
 INTERFACE = get_hardware_interface()
-RACE = DeltaConfiguration() # For storing race management variables
+RACE = get_race_state() # For storing race management variables
 
 PROGRAM_START = datetime.now()
 RACE_START = datetime.now() # Updated on race start commands
-
-
 
 #
 # Database Models
 #
 
-<<<<<<< HEAD
-from model.Pilot import *
-from model.CurrentLap import *
-from model.Heat import *
-from model.Frequency import *
-from model.SavedRace import *
-=======
-class Pilot(DB.Model):
-    id = DB.Column(DB.Integer, primary_key=True)
-    pilot_id = DB.Column(DB.Integer, unique=True, nullable=False)
-    callsign = DB.Column(DB.String(80), unique=True, nullable=False)
-    phonetic = DB.Column(DB.String(80), unique=True, nullable=False)
-    name = DB.Column(DB.String(120), nullable=False)
-	
-    def __repr__(self):
-        return '<Pilot %r>' % self.pilot_id
+BASEDIR = os.path.abspath(os.path.dirname(__file__))
+APP.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(BASEDIR, 'database.db')
+APP.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+#DB = SQLAlchemy(APP)
 
-class Heat(DB.Model):
-    id = DB.Column(DB.Integer, primary_key=True)
-    heat_id = DB.Column(DB.Integer, nullable=False)
-    node_index = DB.Column(DB.Integer, nullable=False)
-    pilot_id = DB.Column(DB.Integer, nullable=False)
+from model.db_models import DB
+from model.db_models import Profiles, FixTimeRace, LastProfile, SavedRace, Pilot, Heat, Frequency, CurrentLap
+from util.db_util import *
 
-    def __repr__(self):
-        return '<Heat %r>' % self.heat_id
+#This must be like that for some silly reason that SQL library doesnt add the reference
+DB.init_app(APP)
+DB.app = APP
 
-class CurrentLap(DB.Model):
-    id = DB.Column(DB.Integer, primary_key=True)
-    node_index = DB.Column(DB.Integer, nullable=False)
-    pilot_id = DB.Column(DB.Integer, nullable=False)
-    lap_id = DB.Column(DB.Integer, nullable=False)
-    lap_time_stamp = DB.Column(DB.Integer, nullable=False)
-    lap_time = DB.Column(DB.Integer, nullable=False)
-    lap_time_formatted = DB.Column(DB.Integer, nullable=False)
-
-    def __repr__(self):
-        return '<CurrentLap %r>' % self.pilot_id
-
-class SavedRace(DB.Model):
-    id = DB.Column(DB.Integer, primary_key=True)
-    round_id = DB.Column(DB.Integer, nullable=False)
-    heat_id = DB.Column(DB.Integer, nullable=False)
-    node_index = DB.Column(DB.Integer, nullable=False)
-    pilot_id = DB.Column(DB.Integer, nullable=False)
-    lap_id = DB.Column(DB.Integer, nullable=False)
-    lap_time_stamp = DB.Column(DB.Integer, nullable=False)
-    lap_time = DB.Column(DB.Integer, nullable=False)
-    lap_time_formatted = DB.Column(DB.Integer, nullable=False)
-
-    def __repr__(self):
-        return '<SavedRace %r>' % self.round_id
-
-class Frequency(DB.Model):
-    id = DB.Column(DB.Integer, primary_key=True)
-    band = DB.Column(DB.Integer, nullable=False)
-    channel = DB.Column(DB.Integer, nullable=False)
-    frequency = DB.Column(DB.Integer, nullable=False)
-
-    def __repr__(self):
-        return '<Frequency %r>' % self.frequency
->>>>>>> origin/master
-
-
-class Profiles(DB.Model):
-    id = DB.Column(DB.Integer, primary_key=True)
-    name = DB.Column(DB.String(80), unique=True, nullable=False)
-    description = DB.Column(DB.String(256), nullable=True)
-    c_offset = DB.Column(DB.Integer, nullable=True)
-    c_threshold = DB.Column(DB.Integer, nullable=True)
-    t_threshold = DB.Column(DB.Integer, nullable=True)
-
-class LastProfile(DB.Model):
-    id = DB.Column(DB.Integer, primary_key=True)
-    profile_id = DB.Column(DB.Integer, nullable=False)
-
-
-class FixTimeRace(DB.Model):
-    id = DB.Column(DB.Integer, primary_key=True)
-    race_time_sec = DB.Column(DB.Integer, nullable=False)
 
 #
 # Authentication
@@ -889,15 +822,7 @@ def pass_record_callback(node, ms_since_lap):
 
 INTERFACE.pass_record_callback = pass_record_callback
 
-def server_log(message):
-    '''Messages emitted from the server script.'''
-    print message
-    SOCKET_IO.emit('hardware_log', message)
 
-def hardware_log_callback(message):
-    '''Message emitted from the delta 5 interface class.'''
-    print message
-    SOCKET_IO.emit('hardware_log', message)
 
 INTERFACE.hardware_log_callback = hardware_log_callback
 
@@ -913,169 +838,6 @@ def default_frequencies():
             INTERFACE.set_frequency(index, frequencies_raceband[index])
     server_log('Default frequencies set')
 
-
-def db_init():
-    '''Initialize database.'''
-    DB.create_all() # Creates tables from database classes/models
-    db_reset_pilots()
-    db_reset_heats()
-    db_reset_frequencies()
-    db_reset_current_laps()
-    db_reset_saved_races()
-    db_reset_profile()
-    db_reset_default_profile()
-    db_reset_fix_race_time()
-    server_log('Database initialized')
-
-def db_reset():
-    '''Resets database.'''
-    db_reset_pilots()
-    db_reset_heats()
-    db_reset_frequencies()
-    db_reset_current_laps()
-    db_reset_saved_races()
-    db_reset_profile()
-    db_reset_default_profile()
-    db_reset_fix_race_time()
-    server_log('Database reset')
-
-def db_reset_keep_pilots():
-    '''Resets database, keeps pilots.'''
-    db_reset_heats()
-    db_reset_frequencies()
-    db_reset_current_laps()
-    db_reset_saved_races()
-    db_reset_fix_race_time()
-    server_log('Database reset, pilots kept')
-
-def db_reset_pilots():
-    '''Resets database pilots to default.'''
-    DB.session.query(Pilot).delete()
-    DB.session.add(Pilot(pilot_id='0', callsign='-', name='-', phonetic="-"))
-    for node in range(RACE.num_nodes):
-        DB.session.add(Pilot(pilot_id=node+1, callsign='callsign{0}'.format(node+1), \
-            name='Pilot Name', phonetic='callsign{0}'.format(node+1)))
-    DB.session.commit()
-    server_log('Database pilots reset')
-def db_reset_heats():
-    '''Resets database heats to default.'''
-    DB.session.query(Heat).delete()
-    for node in range(RACE.num_nodes):
-        DB.session.add(Heat(heat_id=1, node_index=node, pilot_id=node+1))
-    DB.session.commit()
-    server_log('Database heats reset')
-def db_reset_frequencies():
-    '''Resets database frequencies to default.'''
-    DB.session.query(Frequency).delete()
-    # IMD Channels
-    DB.session.add(Frequency(band='IMD', channel='E2', frequency='5685'))
-    DB.session.add(Frequency(band='IMD', channel='F2', frequency='5760'))
-    DB.session.add(Frequency(band='IMD', channel='F4', frequency='5800'))
-    DB.session.add(Frequency(band='IMD', channel='F7', frequency='5860'))
-    DB.session.add(Frequency(band='IMD', channel='E6', frequency='5905'))
-    DB.session.add(Frequency(band='IMD', channel='E4', frequency='5645'))
-    # Band R - Raceband
-    DB.session.add(Frequency(band='R', channel='R1', frequency='5658'))
-    DB.session.add(Frequency(band='R', channel='R2', frequency='5695'))
-    DB.session.add(Frequency(band='R', channel='R3', frequency='5732'))
-    DB.session.add(Frequency(band='R', channel='R4', frequency='5769'))
-    DB.session.add(Frequency(band='R', channel='R5', frequency='5806'))
-    DB.session.add(Frequency(band='R', channel='R6', frequency='5843'))
-    DB.session.add(Frequency(band='R', channel='R7', frequency='5880'))
-    DB.session.add(Frequency(band='R', channel='R8', frequency='5917'))
-    # Band F - ImmersionRC, Iftron
-    DB.session.add(Frequency(band='F', channel='F1', frequency='5740'))
-    DB.session.add(Frequency(band='F', channel='F2', frequency='5760'))
-    DB.session.add(Frequency(band='F', channel='F3', frequency='5780'))
-    DB.session.add(Frequency(band='F', channel='F4', frequency='5800'))
-    DB.session.add(Frequency(band='F', channel='F5', frequency='5820'))
-    DB.session.add(Frequency(band='F', channel='F6', frequency='5840'))
-    DB.session.add(Frequency(band='F', channel='F7', frequency='5860'))
-    DB.session.add(Frequency(band='F', channel='F8', frequency='5880'))
-    # Band E - HobbyKing, Foxtech
-    DB.session.add(Frequency(band='E', channel='E1', frequency='5705'))
-    DB.session.add(Frequency(band='E', channel='E2', frequency='5685'))
-    DB.session.add(Frequency(band='E', channel='E3', frequency='5665'))
-    DB.session.add(Frequency(band='E', channel='E4', frequency='5645'))
-    DB.session.add(Frequency(band='E', channel='E5', frequency='5885'))
-    DB.session.add(Frequency(band='E', channel='E6', frequency='5905'))
-    DB.session.add(Frequency(band='E', channel='E7', frequency='5925'))
-    DB.session.add(Frequency(band='E', channel='E8', frequency='5945'))
-    # Band B - FlyCamOne Europe
-    DB.session.add(Frequency(band='B', channel='B1', frequency='5733'))
-    DB.session.add(Frequency(band='B', channel='B2', frequency='5752'))
-    DB.session.add(Frequency(band='B', channel='B3', frequency='5771'))
-    DB.session.add(Frequency(band='B', channel='B4', frequency='5790'))
-    DB.session.add(Frequency(band='B', channel='B5', frequency='5809'))
-    DB.session.add(Frequency(band='B', channel='B6', frequency='5828'))
-    DB.session.add(Frequency(band='B', channel='B7', frequency='5847'))
-    DB.session.add(Frequency(band='B', channel='B8', frequency='5866'))
-    # Band A - Team BlackSheep, RangeVideo, SpyHawk, FlyCamOne USA
-    DB.session.add(Frequency(band='A', channel='A1', frequency='5865'))
-    DB.session.add(Frequency(band='A', channel='A2', frequency='5845'))
-    DB.session.add(Frequency(band='A', channel='A3', frequency='5825'))
-    DB.session.add(Frequency(band='A', channel='A4', frequency='5805'))
-    DB.session.add(Frequency(band='A', channel='A5', frequency='5785'))
-    DB.session.add(Frequency(band='A', channel='A6', frequency='5765'))
-    DB.session.add(Frequency(band='A', channel='A7', frequency='5745'))
-    DB.session.add(Frequency(band='A', channel='A8', frequency='5725'))
-    # Band L - Lowband
-    DB.session.add(Frequency(band='L', channel='L1', frequency='5362'))
-    DB.session.add(Frequency(band='L', channel='L2', frequency='5399'))
-    DB.session.add(Frequency(band='L', channel='L3', frequency='5436'))
-    DB.session.add(Frequency(band='L', channel='L4', frequency='5473'))
-    DB.session.add(Frequency(band='L', channel='L5', frequency='5510'))
-    DB.session.add(Frequency(band='L', channel='L6', frequency='5547'))
-    DB.session.add(Frequency(band='L', channel='L7', frequency='5584'))
-    DB.session.add(Frequency(band='L', channel='L8', frequency='5621'))
-    DB.session.commit()
-    server_log('Database frequencies reset')
-
-def db_reset_current_laps():
-    '''Resets database current laps to default.'''
-    DB.session.query(CurrentLap).delete()
-    DB.session.commit()
-    server_log('Database current laps reset')
-
-def db_reset_saved_races():
-    '''Resets database saved races to default.'''
-    DB.session.query(SavedRace).delete()
-    DB.session.commit()
-    server_log('Database saved races reset')
-
-def db_reset_profile():
-    '''Set default profile'''
-    DB.session.query(Profiles).delete()
-    DB.session.add(Profiles(name="default 25mW",
-                             description ="default tune params for 25mW race",
-                             c_offset=8,
-                             c_threshold=65,
-                             t_threshold=40))
-    DB.session.add(Profiles(name="default 200mW",
-                             description ="default tune params for 200mW race",
-                             c_offset=8,
-                             c_threshold=90,
-                             t_threshold=40))
-    DB.session.add(Profiles(name="default 600mW",
-                             description ="default tune params for 600mW race",
-                             c_offset=8,
-                             c_threshold=100,
-                             t_threshold=40))
-    DB.session.commit()
-    server_log("Database set default profiles for 25,200,600 mW races")
-
-def db_reset_default_profile():
-    DB.session.query(LastProfile).delete()
-    DB.session.add(LastProfile(profile_id=1))
-    DB.session.commit()
-    server_log("Database set default profile on default 25mW race")
-
-
-def db_reset_fix_race_time():
-    DB.session.query(FixTimeRace).delete()
-    DB.session.add(FixTimeRace(race_time_sec=120))
-    DB.session.commit()
-    server_log("Database set fixed time race to 120 sec (2 minutes)")
 #
 # Program Initialize
 #
@@ -1104,47 +866,6 @@ INTERFACE.set_calibration_threshold_global(tune_val.c_threshold)
 INTERFACE.set_calibration_offset_global(tune_val.c_offset)
 INTERFACE.set_trigger_threshold_global(tune_val.t_threshold)
 
-
-# Test data - Current laps
-# DB.session.add(CurrentLap(node_index=2, pilot_id=2, lap_id=0, lap_time_stamp=1000, lap_time=1000, lap_time_formatted=time_format(1000)))
-# DB.session.add(CurrentLap(node_index=2, pilot_id=2, lap_id=1, lap_time_stamp=11000, lap_time=10000, lap_time_formatted=time_format(10000)))
-# DB.session.add(CurrentLap(node_index=2, pilot_id=2, lap_id=2, lap_time_stamp=21000, lap_time=10000, lap_time_formatted=time_format(10000)))
-# DB.session.add(CurrentLap(node_index=3, pilot_id=3, lap_id=0, lap_time_stamp=1000, lap_time=1000, lap_time_formatted=time_format(1000)))
-# DB.session.add(CurrentLap(node_index=3, pilot_id=3, lap_id=1, lap_time_stamp=12000, lap_time=11000, lap_time_formatted=time_format(11000)))
-# DB.session.add(CurrentLap(node_index=3, pilot_id=3, lap_id=2, lap_time_stamp=24000, lap_time=12000, lap_time_formatted=time_format(12000)))
-# DB.session.add(CurrentLap(node_index=4, pilot_id=4, lap_id=0, lap_time_stamp=1000, lap_time=1000, lap_time_formatted=time_format(1000)))
-# DB.session.add(CurrentLap(node_index=4, pilot_id=4, lap_id=1, lap_time_stamp=12000, lap_time=11000, lap_time_formatted=time_format(11000)))
-# DB.session.add(CurrentLap(node_index=1, pilot_id=1, lap_id=0, lap_time_stamp=1000, lap_time=1000, lap_time_formatted=time_format(1000)))
-# DB.session.add(CurrentLap(node_index=1, pilot_id=1, lap_id=1, lap_time_stamp=13000, lap_time=12000, lap_time_formatted=time_format(12000)))
-# DB.session.commit()
-
-# Test data - SavedRace
-# db_init()
-# on_add_heat()
-# DB.session.add(SavedRace(round_id=1, heat_id=2, node_index=2, pilot_id=2, lap_id=0, lap_time_stamp=1000, lap_time=1000, lap_time_formatted=time_format(1000)))
-# DB.session.add(SavedRace(round_id=1, heat_id=2, node_index=2, pilot_id=2, lap_id=1, lap_time_stamp=15000, lap_time=14000, lap_time_formatted=time_format(14000)))
-# DB.session.add(SavedRace(round_id=1, heat_id=2, node_index=2, pilot_id=2, lap_id=2, lap_time_stamp=30000, lap_time=15000, lap_time_formatted=time_format(15000)))
-# DB.session.add(SavedRace(round_id=1, heat_id=2, node_index=3, pilot_id=3, lap_id=0, lap_time_stamp=1500, lap_time=1500, lap_time_formatted=time_format(1500)))
-# DB.session.add(SavedRace(round_id=1, heat_id=2, node_index=3, pilot_id=3, lap_id=1, lap_time_stamp=15000, lap_time=13500, lap_time_formatted=time_format(13500)))
-# DB.session.add(SavedRace(round_id=1, heat_id=2, node_index=1, pilot_id=1, lap_id=0, lap_time_stamp=750, lap_time=750, lap_time_formatted=time_format(750)))
-# DB.session.add(SavedRace(round_id=1, heat_id=2, node_index=1, pilot_id=1, lap_id=1, lap_time_stamp=10750, lap_time=10000, lap_time_formatted=time_format(10000)))
-# DB.session.commit()
-# DB.session.add(SavedRace(round_id=1, heat_id=1, node_index=2, pilot_id=2, lap_id=0, lap_time_stamp=1000, lap_time=1000, lap_time_formatted=time_format(1000)))
-# DB.session.add(SavedRace(round_id=1, heat_id=1, node_index=2, pilot_id=2, lap_id=1, lap_time_stamp=15000, lap_time=14000, lap_time_formatted=time_format(14000)))
-# DB.session.add(SavedRace(round_id=1, heat_id=1, node_index=2, pilot_id=2, lap_id=2, lap_time_stamp=30000, lap_time=15000, lap_time_formatted=time_format(15000)))
-# DB.session.add(SavedRace(round_id=1, heat_id=1, node_index=3, pilot_id=3, lap_id=0, lap_time_stamp=1500, lap_time=1500, lap_time_formatted=time_format(1500)))
-# DB.session.add(SavedRace(round_id=1, heat_id=1, node_index=3, pilot_id=3, lap_id=1, lap_time_stamp=15000, lap_time=13500, lap_time_formatted=time_format(13500)))
-# DB.session.add(SavedRace(round_id=1, heat_id=1, node_index=1, pilot_id=1, lap_id=0, lap_time_stamp=750, lap_time=750, lap_time_formatted=time_format(750)))
-# DB.session.add(SavedRace(round_id=1, heat_id=1, node_index=1, pilot_id=1, lap_id=1, lap_time_stamp=10750, lap_time=10000, lap_time_formatted=time_format(10000)))
-# DB.session.commit()
-# DB.session.add(SavedRace(round_id=2, heat_id=1, node_index=2, pilot_id=2, lap_id=0, lap_time_stamp=1000, lap_time=1000, lap_time_formatted=time_format(1000)))
-# DB.session.add(SavedRace(round_id=2, heat_id=1, node_index=2, pilot_id=2, lap_id=1, lap_time_stamp=16000, lap_time=15000, lap_time_formatted=time_format(15000)))
-# DB.session.add(SavedRace(round_id=2, heat_id=1, node_index=2, pilot_id=2, lap_id=2, lap_time_stamp=31000, lap_time=16000, lap_time_formatted=time_format(16000)))
-# DB.session.add(SavedRace(round_id=2, heat_id=1, node_index=3, pilot_id=3, lap_id=0, lap_time_stamp=1500, lap_time=1500, lap_time_formatted=time_format(1500)))
-# DB.session.add(SavedRace(round_id=2, heat_id=1, node_index=3, pilot_id=3, lap_id=1, lap_time_stamp=16000, lap_time=14500, lap_time_formatted=time_format(14500)))
-# DB.session.add(SavedRace(round_id=2, heat_id=1, node_index=1, pilot_id=1, lap_id=0, lap_time_stamp=750, lap_time=750, lap_time_formatted=time_format(750)))
-# DB.session.add(SavedRace(round_id=2, heat_id=1, node_index=1, pilot_id=1, lap_id=1, lap_time_stamp=11750, lap_time=11000, lap_time_formatted=time_format(11000)))
-# DB.session.commit()
 
 
 if __name__ == '__main__':
