@@ -23,22 +23,30 @@ class RX5808:
     MODE_NORMAL = 0
     MODE_CALIBRATION = 1
 
+
+
     def __init__(self,ss,index):
         self._ss = ss
         self._index = index
         self._calibration_threshold = 95
         self._trigger_rssi = 40
+        self._calibration_offset = 0
+        self._filter_ratio = 0
+
+        self._ms_since_lap = 0
+        self._peak_rssi = 0
+        self._peak_rssi_raw = 0
+        self._frequency = 0
+        self._currrent_rssi = 0
+
+
         self._MODE = MODE_NORMAL
+
         GPIO.setup(ss, GPIO.OUT)
 
     def set_spi(self,spi):
         self._spi = spi
 
-    def set_calibration_threadshold(self, num):
-        self._calibration_threshold = num
-
-    def enable_calibration_mode(self):
-        self._MODE = self.MODE_CALIBRATION
 
     def get_vtx_hex(self, freq):
         for i in range(len(self.vtx_frequency)):
@@ -60,6 +68,7 @@ class RX5808:
 
         print("Selected frequency: {}MHz ({})...".format(freq, channel_data))
 
+        self._frequency = freq
         #set_register(0x08, 0x00)
         self._spi.set_register(0x08, 0x03F40, self._ss) # default values
 
@@ -83,11 +92,61 @@ class RX5808:
         else:
             return str(channel_freq) + "MHz"
 
-    def get_trigger(self):
+
+    def set_trigger_threshold(self, rssi):
+        self._trigger_rssi = rssi
+
+    def get_trigger_threashold(self):
         return self._trigger_rssi
+
+    def get_peak_rssi(self):
+        return self._peak_rssi
 
     def get_rssi(self):
         if ((self._index > 7) or (self._index < 0)):
                 return -1
 
-        return self._spi.read_adc(self._index)
+        self._currrent_rssi = self._spi.read_adc(self._index)
+        if self._currrent_rssi > self._peak_rssi: #Update the peak rssi
+            self._peak_rssi = self._currrent_rssi
+        return self._currrent_rssi
+
+
+    def set_filter_ratio(self, ratio):
+        self._filter_ratio = ratio
+
+    def get_filter_ratio(self):
+        return self._filter_ratio
+
+    def set_calibration_offset(self, offset):
+        self._calibration_offset = offset
+
+    def get_calibration_offset(self):
+        return self._calibration_offset
+
+    def set_calibration_mode(self, active):
+        if active:
+            self._MODE = self.MODE_CALIBRATION
+        else:
+            self._MODE = self.MODE_NORMAL
+
+    def set_calibration_threshold(self, threshold):
+        self._calibration_threshold = threshold
+
+    def get_settings_json(self):
+        return {
+            'frequency': self._frequency,
+            'current_rssi': self._currrent_rssi,
+            'trigger_rssi': self._trigger_rssi,
+        }
+
+    def get_heartbeat_json(self):
+        return {
+            'current_rssi': self._currrent_rssi,
+            'trigger_rssi': self._trigger_rssi,
+            'peak_rssi': self._peak_rssi
+        }
+
+
+    def get_current_rssi(self):
+        return self._currrent_rssi

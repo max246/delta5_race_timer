@@ -18,11 +18,8 @@ gevent.monkey.patch_all()
 
 from lib.RX5808 import *
 from lib.SPI import *
+from lib.Delta5Hardware import  *
 
-
-sys.path.append('../delta5interface')
-sys.path.append('/home/pi/delta5_race_timer/src/delta5interface')  # Needed to run on startup
-from Delta5Interface import get_hardware_interface
 from Delta5Race import get_race_state
 
 
@@ -36,7 +33,10 @@ from util.socket_util import SOCKET_IO
 
 SOCKET_IO.init_app(APP)
 
-INTERFACE = get_hardware_interface()
+
+manager_hardware = Delta5Hardware()
+
+
 RACE = get_race_state() # For storing race management variables
 
 PROGRAM_START = datetime.now()
@@ -140,9 +140,9 @@ def index():
 def heats():
     '''Route to heat summary page.'''
     return render_template('heats.html', num_nodes=RACE.num_nodes, heats=Heat, pilots=Pilot, \
-        frequencies=[node.frequency for node in INTERFACE.nodes], \
+        frequencies=[node.frequency for node in manager_hardware.get_nodes()], \
         channels=[Frequency.query.filter_by(frequency=node.frequency).first().channel \
-            for node in INTERFACE.nodes])
+            for node in manager_hardware.get_nodes()])
 
 @APP.route('/race')
 @requires_auth
@@ -153,9 +153,9 @@ def race():
                            heats=Heat, pilots=Pilot,
                            fix_race_time=FixTimeRace.query.get(1).race_time_sec,
 						   lang_id=RACE.lang_id,
-        frequencies=[node.frequency for node in INTERFACE.nodes],
+        frequencies=[node.frequency for node in manager_hardware.get_nodes()],
         channels=[Frequency.query.filter_by(frequency=node.frequency).first().channel
-            for node in INTERFACE.nodes])
+            for node in manager_hardware.get_nodes()])
 
 @APP.route('/settings')
 @requires_auth
@@ -195,10 +195,10 @@ def connect_handler():
     '''Starts the delta 5 interface and a heartbeat thread for rssi.'''
     server_log('Client connected')
     INTERFACE.start()
-    global HEARTBEAT_THREAD
-    if HEARTBEAT_THREAD is None:
-        HEARTBEAT_THREAD = gevent.spawn(heartbeat_thread_function)
-        server_log('Heartbeat thread started')
+    #global HEARTBEAT_THREAD
+    #if HEARTBEAT_THREAD is None:
+    #    HEARTBEAT_THREAD = gevent.spawn(heartbeat_thread_function)
+    #    server_log('Heartbeat thread started')
     emit_node_data() # Settings page, node channel and triggers
     emit_node_tuning() # Settings page, node tuning values
     emit_race_status() # Race page, to set race button states
@@ -217,7 +217,7 @@ def on_set_frequency(data):
     '''Set node frequency.'''
     node_index = data['node']
     frequency = data['frequency']
-    INTERFACE.set_frequency(node_index, frequency)
+    manager_hardware.set_frequency(node_index, frequency)
     server_log('Frequency set: Node {0} Frequency {1}'.format(node_index+1, frequency))
     emit_node_data() # Settings page, new node channel
 
@@ -326,9 +326,9 @@ def on_delete_profile():
      last_profile.profile_id = first_profile_id
      DB.session.commit()
      profile =Profiles.query.get(first_profile_id)
-     INTERFACE.set_calibration_threshold_global(profile.c_threshold)
-     INTERFACE.set_calibration_offset_global(profile.c_offset)
-     INTERFACE.set_trigger_threshold_global(profile.t_threshold)
+     manager_hardware.set_calibration_threshold_global(profile.c_threshold)
+     manager_hardware.set_calibration_offset_global(profile.c_offset)
+     manager_hardware.set_trigger_threshold_global(profile.t_threshold)
      emit_node_tuning()
 
 @SOCKET_IO.on('set_profile_name')
@@ -358,7 +358,7 @@ def on_set_profile_description(data):
 def on_set_calibration_threshold(data):
     '''Set Calibration Threshold.'''
     calibration_threshold = data['calibration_threshold']
-    INTERFACE.set_calibration_threshold_global(calibration_threshold)
+    manager_hardware.set_calibration_threshold_global(calibration_threshold)
     last_profile = LastProfile.query.get(1)
     profile = Profiles.query.filter_by(id=last_profile.profile_id).first()
     profile.c_threshold = calibration_threshold
@@ -371,7 +371,7 @@ def on_set_calibration_threshold(data):
 def on_set_calibration_offset(data):
     '''Set Calibration Offset.'''
     calibration_offset = data['calibration_offset']
-    INTERFACE.set_calibration_offset_global(calibration_offset)
+    manager_hardware.set_calibration_offset_global(calibration_offset)
     last_profile = LastProfile.query.get(1)
     profile = Profiles.query.filter_by(id=last_profile.profile_id).first()
     profile.c_offset = calibration_offset
@@ -384,7 +384,7 @@ def on_set_calibration_offset(data):
 def on_set_trigger_threshold(data):
     '''Set Trigger Threshold.'''
     trigger_threshold = data['trigger_threshold']
-    INTERFACE.set_trigger_threshold_global(trigger_threshold)
+    manager_hardware.set_trigger_threshold_global(trigger_threshold)
     last_profile = LastProfile.query.get(1)
     profile = Profiles.query.filter_by(id=last_profile.profile_id).first()
     profile.t_threshold = trigger_threshold
@@ -418,9 +418,9 @@ def on_set_profile(data):
     last_profile = LastProfile.query.get(1)
     last_profile.profile_id = profile.id
     DB.session.commit()
-    INTERFACE.set_calibration_threshold_global(profile.c_threshold)
-    INTERFACE.set_calibration_offset_global(profile.c_offset)
-    INTERFACE.set_trigger_threshold_global(profile.t_threshold)
+    manager_hardware.set_calibration_threshold_global(profile.c_threshold)
+    manager_hardware.set_calibration_offset_global(profile.c_offset)
+    manager_hardware.set_trigger_threshold_global(profile.t_threshold)
     emit_node_tuning()
     server_log("set tune paramas for profile '%s'" % profile_val)
 
@@ -481,7 +481,7 @@ def start_race():
     on_clear_laps() # Ensure laps are cleared before race start, shouldn't be needed
     emit_current_laps() # Race page, blank laps to the web client
     emit_leaderboard() # Race page, blank leaderboard to the web client
-    INTERFACE.enable_calibration_mode() # Nodes reset triggers on next pass
+    manager_hardware.enable_calibration_mode() # Nodes reset triggers on next pass
     gevent.sleep(0.500) # Make this random 2 to 5 seconds
     RACE.race_status = 1 # To enable registering passed laps
     global RACE_START # To redefine main program variable
@@ -579,12 +579,21 @@ def emit_race_status():
 
 def emit_node_data():
     '''Emits node data.'''
+    frequency = []
+    channel = []
+    trigger_rssi = []
+    peak_rssi = []
+    for node in manager_hardware.get_nodes():
+        frequency.append(node.get_frequency())
+        channel.append(Frequency.query.filter_by(frequency=node.get_frequency()).first().channel)
+        trigger_rssi.append(node.get_trigger_threashold())
+        peak_rssi.append(node.get_peak_rssi())
+
     SOCKET_IO.emit('node_data', {
-        'frequency': [node.frequency for node in INTERFACE.nodes],
-        'channel': [Frequency.query.filter_by(frequency=node.frequency).first().channel \
-            for node in INTERFACE.nodes],
-        'trigger_rssi': [node.trigger_rssi for node in INTERFACE.nodes],
-        'peak_rssi': [node.peak_rssi for node in INTERFACE.nodes]
+        'frequency': frequency,
+        'channel': channel,
+        'trigger_rssi': trigger_rssi,
+        'peak_rssi': peak_rssi
     })
 def emit_node_tuning():
     '''Emits node tuning values.'''
@@ -740,11 +749,7 @@ def emit_phonetic_text(phtext):
 # Program Functions
 #
 
-def heartbeat_thread_function():
-    '''Emits current rssi data.'''
-    while True:
-        SOCKET_IO.emit('heartbeat', INTERFACE.get_heartbeat_json())
-        gevent.sleep(0.500)
+
 
 def ms_from_race_start():
     '''Return milliseconds since race start.'''
@@ -826,30 +831,23 @@ INTERFACE.pass_record_callback = pass_record_callback
 
 INTERFACE.hardware_log_callback = hardware_log_callback
 
-def default_frequencies():
-    '''Set node frequencies, IMD for 6 or less and race band for 7 or 8.'''
-    frequencies_imd_5_6 = [5685, 5760, 5800, 5860, 5905, 5645]
-    frequencies_raceband = [5658, 5695, 5732, 5769, 5806, 5843, 5880, 5917]
-    for index, node in enumerate(INTERFACE.nodes):
-        gevent.sleep(0.100)
-        if RACE.num_nodes < 7:
-            INTERFACE.set_frequency(index, frequencies_imd_5_6[index])
-        else:
-            INTERFACE.set_frequency(index, frequencies_raceband[index])
-    server_log('Default frequencies set')
+
+
 
 #
 # Program Initialize
 #
 
 # Save number of nodes found
-RACE.num_nodes = len(INTERFACE.nodes)
+RACE.num_nodes = len(manager_hardware.get_nodes())
 print 'Number of nodes found: {0}'.format(RACE.num_nodes)
 
 # Delay to get I2C addresses through interface class initialization
 gevent.sleep(0.500)
 # Set default frequencies based on number of nodes
-default_frequencies()
+
+manager_hardware.default_frequencies()
+server_log('Default frequencies set')
 
 # Create database if it doesn't exist
 if not os.path.exists('database.db'):
@@ -862,11 +860,15 @@ db_reset_current_laps()
 # Send initial profile values to nodes
 last_profile = LastProfile.query.get(1)
 tune_val = Profiles.query.get(last_profile.profile_id)
-INTERFACE.set_calibration_threshold_global(tune_val.c_threshold)
-INTERFACE.set_calibration_offset_global(tune_val.c_offset)
-INTERFACE.set_trigger_threshold_global(tune_val.t_threshold)
+manager_hardware.set_calibration_threshold_global(tune_val.c_threshold)
+manager_hardware.set_calibration_offset_global(tune_val.c_offset)
+manager_hardware.set_trigger_threshold_global(tune_val.t_threshold)
 
-
+thread_rxs =  ThreadReadRX(manager_hardware)
+thread_heartbeat = ThreadHeartbeat(SOCKET_IO)
 
 if __name__ == '__main__':
+    thread_rxs.set_deamon(True)
+    thread_rxs.start()
+    thread_heartbeat.start()
     SOCKET_IO.run(APP, host='0.0.0.0', port=5000, debug=True)

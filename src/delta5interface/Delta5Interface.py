@@ -1,65 +1,13 @@
 '''Delta 5 hardware interface layer.'''
 
-import smbus # For i2c comms
 import gevent # For threads and timing
 from gevent.lock import BoundedSemaphore # To limit i2c calls
 
-from Node import Node
 from BaseHardwareInterface import BaseHardwareInterface
-
-READ_ADDRESS = 0x00 # Gets i2c address of arduino (1 byte)
-READ_FREQUENCY = 0x03 # Gets channel frequency (2 byte)
-READ_LAP_STATS = 0x05
-READ_CALIBRATION_THRESHOLD = 0x15
-READ_CALIBRATION_MODE = 0x16
-READ_CALIBRATION_OFFSET = 0x17
-READ_TRIGGER_THRESHOLD = 0x18
-READ_FILTER_RATIO = 0x19
-
-WRITE_FREQUENCY = 0x51 # Sets frequency (2 byte)
-WRITE_CALIBRATION_THRESHOLD = 0x65
-WRITE_CALIBRATION_MODE = 0x66
-WRITE_CALIBRATION_OFFSET = 0x67
-WRITE_TRIGGER_THRESHOLD = 0x68
-WRITE_FILTER_RATIO = 0x69
+from delta5server.lib.ManagerRX import *
 
 UPDATE_SLEEP = 0.1 # Main update loop delay
 
-I2C_CHILL_TIME = 0.075 # Delay after i2c read/write
-I2C_RETRY_COUNT = 5 # Limit of i2c retries
-
-def unpack_8(data):
-    return data[0]
-
-def pack_8(data):
-    return [data]
-
-def unpack_16(data):
-    '''Returns the full variable from 2 bytes input.'''
-    result = data[0]
-    result = (result << 8) | data[1]
-    return result
-
-def pack_16(data):
-    '''Returns a 2 part array from the full variable.'''
-    part_a = (data >> 8)
-    part_b = (data & 0xFF)
-    return [part_a, part_b]
-
-def unpack_32(data):
-    '''Returns the full variable from 4 bytes input.'''
-    result = data[0]
-    result = (result << 8) | data[1]
-    result = (result << 8) | data[2]
-    result = (result << 8) | data[3]
-    return result
-
-def validate_checksum(data):
-    '''Returns True if the checksum matches the data.'''
-    if data is None:
-        return False
-    checksum = sum(data[:-1]) & 0xFF
-    return checksum == data[-1]
 
 
 class Delta5Interface(BaseHardwareInterface):
@@ -69,10 +17,16 @@ class Delta5Interface(BaseHardwareInterface):
         self.pass_record_callback = None # Function added in server.py
         self.hardware_log_callback = None # Function added in server.py
 
-        self.i2c = smbus.SMBus(1) # Start i2c bus
-        self.semaphore = BoundedSemaphore(1) # Limits i2c to 1 read/write at a time
-        self.i2c_timestamp = -1
+        #Setup reader
+        cs_rx = [25,2,2,2,2,2]
+        spi = SPI(11, 10, 8, 9, cs_rx)  # CLK, MOSI, CS, MISO, ARRAY CS RX
+        self._manager_rx = ManagerRX(spi)
+        for i in range(0,5):
+            if spi.read_adc(i) > 0:
+                self._manager_rx.add_node(5865, cs_rx[i], i)
 
+
+        '''
         # Scans all i2c_addrs to populate nodes array
         self.nodes = [] # Array to hold each node object
         i2c_addrs = [8, 10, 12, 14, 16, 18, 20, 22] # Software limited to 8 nodes
@@ -89,6 +43,9 @@ class Delta5Interface(BaseHardwareInterface):
                 print "No node at address {0}".format(addr)
             gevent.sleep(I2C_CHILL_TIME)
 
+        '''
+
+        '''
         for node in self.nodes:
             node.frequency = self.get_value_16(node, READ_FREQUENCY)
             if node.index == 0:
@@ -104,7 +61,7 @@ class Delta5Interface(BaseHardwareInterface):
                 self.set_calibration_threshold(node.index, self.calibration_threshold)
                 self.set_calibration_offset(node.index, self.calibration_offset)
                 self.set_trigger_threshold(node.index, self.trigger_threshold)
-
+        '''
 
     #
     # Class Functions
@@ -131,6 +88,12 @@ class Delta5Interface(BaseHardwareInterface):
             gevent.sleep(UPDATE_SLEEP)
 
     def update(self):
+        self._manager_rx.read_all()
+        for rx in self._manager_rx.get_nodes():
+            ms_since_lap = rx.get_last_ms()
+            self.pass_record_callback(rx, ms_since_lap)
+
+        '''
         for node in self.nodes:
             data = self.read_block(node.i2c_addr, READ_LAP_STATS, 17)
             if data != None:
@@ -146,187 +109,68 @@ class Delta5Interface(BaseHardwareInterface):
                     if node.last_lap_id != -1 and callable(self.pass_record_callback):
                         self.pass_record_callback(node, ms_since_lap)
                     node.last_lap_id = lap_id
-
-    #
-    # I2C Common Functions
-    #
-
-    def i2c_sleep(self):
-        if self.i2c_timestamp == -1:
-            return
-        time_passed = self.milliseconds() - self.i2c_timestamp
-        time_remaining = (I2C_CHILL_TIME * 1000) - time_passed
-        if (time_remaining > 0):
-            # print("i2c sleep {0}".format(time_remaining))
-            gevent.sleep(time_remaining / 1000.0)
-
-    def read_block(self, addr, offset, size):
-        '''Read i2c data given an address, code, and data size.'''
-        success = False
-        retry_count = 0
-        data = None
-        while success is False and retry_count < I2C_RETRY_COUNT:
-            try:
-                with self.semaphore: # Wait if i2c comms is already in progress
-                    self.i2c_sleep()
-                    data = self.i2c.read_i2c_block_data(addr, offset, size + 1)
-                    self.i2c_timestamp = self.milliseconds()
-                    if validate_checksum(data):
-                        success = True
-                        data = data[:-1]
-                    else:
-                        # self.log('Invalid Checksum ({0}): {1}'.format(retry_count, data))
-                        retry_count = retry_count + 1
-            except IOError as err:
-                self.log(err)
-                self.i2c_timestamp = self.milliseconds()
-                retry_count = retry_count + 1
-        return data
-
-    def write_block(self, addr, offset, data):
-        '''Write i2c data given an address, code, and data.'''
-        success = False
-        retry_count = 0
-        data_with_checksum = data
-        data_with_checksum.append(offset)
-        data_with_checksum.append(sum(data_with_checksum) & 0xFF)
-        while success is False and retry_count < I2C_RETRY_COUNT:
-            try:
-                with self.semaphore: # Wait if i2c comms is already in progress
-                    self.i2c_sleep()
-                    self.i2c.write_i2c_block_data(addr, offset, data_with_checksum)
-                    self.i2c_timestamp = self.milliseconds()
-                    success = True
-            except IOError as err:
-                self.log(err)
-                self.i2c_timestamp = self.milliseconds()
-                retry_count = retry_count + 1
-        return success
-
-    #
-    # Internal helper fucntions for setting single values
-    #
-
-    def get_value_8(self, node, command):
-        data = self.read_block(node.i2c_addr, command, 1)
-        result = None
-        if data != None:
-            result = unpack_8(data)
-        return result
-
-    def get_value_16(self, node, command):
-        data = self.read_block(node.i2c_addr, command, 2)
-        result = None
-        if data != None:
-            result = unpack_16(data)
-        return result
-
-    def set_and_validate_value_8(self, node, write_command, read_command, in_value):
-        success = False
-        retry_count = 0
-        out_value = None
-        while success is False and retry_count < I2C_RETRY_COUNT:
-            self.write_block(node.i2c_addr, write_command, pack_8(in_value))
-            out_value = self.get_value_8(node, read_command)
-            if out_value == in_value:
-                success = True
-            else:
-                retry_count = retry_count + 1
-                self.log('Value Not Set ({0})'.format(retry_count))
-
-        if out_value == None:
-            out_value = in_value
-        return out_value
-
-    def set_and_validate_value_16(self, node, write_command, read_command, in_value):
-        success = False
-        retry_count = 0
-        out_value = None
-        while success is False and retry_count < I2C_RETRY_COUNT:
-            self.write_block(node.i2c_addr, write_command, pack_16(in_value))
-            out_value = self.get_value_16(node, read_command)
-            if out_value == in_value:
-                success = True
-            else:
-                retry_count = retry_count + 1
-                self.log('Value Not Set ({0})'.format(retry_count))
-
-        if out_value == None:
-            out_value = in_value
-        return out_value
+        '''
 
     #
     # External functions for setting data
     #
 
+    #done
     def set_frequency(self, node_index, frequency):
-        node = self.nodes[node_index]
-        node.frequency = self.set_and_validate_value_16(node,
-            WRITE_FREQUENCY,
-            READ_FREQUENCY,
-            frequency)
-
+        self._manager_rx.set_frequency(node_index, frequency)
+    #done
     def set_calibration_threshold(self, node_index, threshold):
-        node = self.nodes[node_index]
-        node.calibration_threshold = self.set_and_validate_value_16(node,
-            WRITE_CALIBRATION_THRESHOLD,
-            READ_CALIBRATION_THRESHOLD,
-            threshold)
+        self._manager_rx.set_calibration_threshold(node_index, threshold)
 
+    #done
     def set_calibration_threshold_global(self, threshold):
         self.calibration_threshold = threshold
-        for node in self.nodes:
-            self.set_calibration_threshold(node.index, threshold)
+        amount = self._manager_rx.get_amount()
+        for i in range(0, amount):
+            self._manager_rx.set_calibration_threshold(i, threshold)
         return self.calibration_threshold
 
+    #done
     def set_calibration_mode(self, node_index, calibration_mode):
-        node = self.nodes[node_index]
-        self.set_and_validate_value_8(node,
-            WRITE_CALIBRATION_MODE,
-            READ_CALIBRATION_MODE,
-            calibration_mode)
+        self._manager_rx.set_calibration_mode(node_index, calibration_mode);
 
+    #done
     def enable_calibration_mode(self):
-        for node in self.nodes:
-            self.set_calibration_mode(node.index, True);
-
+        amount = self._manager_rx.get_amount()
+        for i in range(0, amount):
+            self._manager_rx.set_calibration_mode(i, True);
+    #done
     def set_calibration_offset(self, node_index, offset):
-        node = self.nodes[node_index]
-        node.calibration_offset = self.set_and_validate_value_16(node,
-            WRITE_CALIBRATION_OFFSET,
-            READ_CALIBRATION_OFFSET,
-            offset)
-
-    def set_calibration_offset_global(self, offset):
+        self._manager_rx.set_calibration_offset(node_index, offset)
+    #done
+    def set_calibration_offset(self, offset):
         self.calibration_offset = offset
-        for node in self.nodes:
-            self.set_calibration_offset(node.index, offset)
+        amount = self._manager_rx.get_amount()
+        for i in range(0, amount):
+            self._manager_rx.set_calibration_offset(i, offset)
         return self.calibration_offset
-
+    #done
     def set_trigger_threshold(self, node_index, threshold):
-        node = self.nodes[node_index]
-        node.trigger_threshold = self.set_and_validate_value_16(node,
-            WRITE_TRIGGER_THRESHOLD,
-            READ_TRIGGER_THRESHOLD,
-            threshold)
+        self._manager_rx.set_trigger_threshold(node_index, threshold)
 
+    #done
     def set_trigger_threshold_global(self, threshold):
         self.trigger_threshold = threshold
-        for node in self.nodes:
-            self.set_trigger_threshold(node.index, threshold)
+        amount = self._manager_rx.get_amount()
+        for i in range(0, amount):
+            self._manager_rx.set_trigger_threshold(i, threshold)
         return self.trigger_threshold
 
+    #done
     def set_filter_ratio(self, node_index, filter_ration):
-        node = self.nodes[node_index]
-        node.filter_ration = self.set_and_validate_value_8(node,
-            WRITE_FILTER_RATIO,
-            READ_FILTER_RATIO,
-            filter_ration)
+        self._manager_rx(node_index, filter_ration)
 
+    #done
     def set_filter_ratio_global(self, filter_ratio):
         self.filter_ratio = filter_ratio
-        for node in self.nodes:
-            self.set_filter_ratio(node.index, filter_ratio)
+        amount = self._manager_rx.get_amount()
+        for i in range(0, amount):
+            self._manager_rx.set_filter_ratio(i, filter_ratio)
         return self.filter_ratio
 
     def intf_simulate_lap(self, node_index):
